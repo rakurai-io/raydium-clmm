@@ -525,3 +525,195 @@ fn swap_compute(
 
     Ok((state.amount_calculated, tick_array_start_index_vec))
 }
+
+
+fn compute_swap(
+    current_sqrt_price_x64: u128,
+    current_liquidity: u128,
+    zero_for_one: bool,
+    is_base_input: bool,
+    trade_fee_rate: u32,
+    amount_specified: u64,
+    current_vaild_tick_array_start_index: i32,
+    sqrt_price_limit_x64: u128,
+    pool_state: &raydium_amm_v3::states::PoolState,
+    tickarray_bitmap_extension: &raydium_amm_v3::states::TickArrayBitmapExtension,
+    tick_arrays: &mut VecDeque<raydium_amm_v3::states::TickArrayState>,
+) -> Result<(u64, u128, u128, i32), &'static str> {
+    if amount_specified == 0 {
+        return Err("amountSpecified must not be 0");
+    }
+
+    let pool_tick_current = pool_state.tick_current;
+    let pool_tick_spacing = pool_state.tick_spacing;
+
+    let sqrt_price_limit_x64 = if sqrt_price_limit_x64 == 0 {
+        if zero_for_one {
+            tick_math::MIN_SQRT_PRICE_X64 + 1
+        } else {
+            tick_math::MAX_SQRT_PRICE_X64 - 1
+        }
+    } else {
+        sqrt_price_limit_x64
+    };
+
+    if zero_for_one {
+        if sqrt_price_limit_x64 < tick_math::MIN_SQRT_PRICE_X64 {
+            return Err("sqrt_price_limit_x64 must greater than MIN_SQRT_PRICE_X64");
+        }
+        if sqrt_price_limit_x64 >= current_sqrt_price_x64 {
+            return Err("sqrt_price_limit_x64 must smaller than current");
+        }
+    } else {
+        if sqrt_price_limit_x64 > tick_math::MAX_SQRT_PRICE_X64 {
+            return Err("sqrt_price_limit_x64 must smaller than MAX_SQRT_PRICE_X64");
+        }
+        if sqrt_price_limit_x64 <= current_sqrt_price_x64 {
+            return Err("sqrt_price_limit_x64 must greater than current");
+        }
+    }
+
+    let mut state = SwapState {
+        amount_specified_remaining: amount_specified,
+        amount_calculated: 0,
+        sqrt_price_x64: current_sqrt_price_x64,
+        tick: pool_tick_current,
+        liquidity: current_liquidity,
+    };
+
+    let mut current_valid_tick_array_start_index = current_vaild_tick_array_start_index;
+    let mut tick_array_index = tick_arrays
+        .iter()
+        .position(|tick_array| tick_array.start_tick_index == current_valid_tick_array_start_index)
+        .ok_or("tick array start tick index does not match")?;
+
+    let mut loop_count = 0;
+    while state.amount_specified_remaining != 0
+        && state.sqrt_price_x64 != sqrt_price_limit_x64
+        && state.tick < tick_math::MAX_TICK
+        && state.tick > tick_math::MIN_TICK
+    {
+        if loop_count > 10 {
+            return Err("loop_count limit");
+        }
+
+        let mut step = StepComputations::default();
+        step.sqrt_price_start_x64 = state.sqrt_price_x64;
+
+        let mut next_initialized_tick = if let Some(tick_state) = tick_arrays[tick_array_index]
+            .next_initialized_tick(state.tick, pool_tick_spacing, zero_for_one)
+            .unwrap()
+        {
+            Box::new(*tick_state)
+        } else {
+            Box::new(raydium_amm_v3::states::TickState::default())
+        };
+
+        if !next_initialized_tick.is_initialized() {
+            let next_tick_array_start_index = pool_state
+                .next_initialized_tick_array_start_index(
+                    &Some(*tickarray_bitmap_extension),
+                    current_valid_tick_array_start_index,
+                    zero_for_one,
+                )
+                .unwrap();
+
+            let next_tick_array_start_index =
+                next_tick_array_start_index.ok_or("tick array start tick index out of range limit")?;
+
+            current_valid_tick_array_start_index = next_tick_array_start_index;
+            tick_array_index = tick_arrays
+                .iter()
+                .position(|arr| arr.start_tick_index == next_tick_array_start_index)
+                .ok_or("tick array start tick index does not match")?;
+
+            let first_initialized_tick = *tick_arrays[tick_array_index]
+                .first_initialized_tick(zero_for_one)
+                .unwrap();
+            next_initialized_tick = Box::new(first_initialized_tick);
+        }
+
+        step.tick_next = next_initialized_tick.tick;
+        step.initialized = next_initialized_tick.is_initialized();
+        if step.tick_next < tick_math::MIN_TICK {
+            step.tick_next = tick_math::MIN_TICK;
+        } else if step.tick_next > tick_math::MAX_TICK {
+            step.tick_next = tick_math::MAX_TICK;
+        }
+
+        step.sqrt_price_next_x64 = tick_math::get_sqrt_price_at_tick(step.tick_next).unwrap();
+
+        let target_price = if (zero_for_one && step.sqrt_price_next_x64 < sqrt_price_limit_x64)
+            || (!zero_for_one && step.sqrt_price_next_x64 > sqrt_price_limit_x64)
+        {
+            sqrt_price_limit_x64
+        } else {
+            step.sqrt_price_next_x64
+        };
+
+        let swap_step = raydium_amm_v3::libraries::swap_math::compute_swap_step(
+            state.sqrt_price_x64,
+            target_price,
+            state.liquidity,
+            state.amount_specified_remaining,
+            trade_fee_rate,
+            is_base_input,
+            zero_for_one,
+            1,
+        )
+        .unwrap();
+
+        state.sqrt_price_x64 = swap_step.sqrt_price_next_x64;
+        step.amount_in = swap_step.amount_in;
+        step.amount_out = swap_step.amount_out;
+        step.fee_amount = swap_step.fee_amount;
+
+        if is_base_input {
+            state.amount_specified_remaining = state
+                .amount_specified_remaining
+                .checked_sub(step.amount_in + step.fee_amount)
+                .unwrap();
+            state.amount_calculated = state
+                .amount_calculated
+                .checked_add(step.amount_out)
+                .unwrap();
+        } else {
+            state.amount_specified_remaining = state
+                .amount_specified_remaining
+                .checked_sub(step.amount_out)
+                .unwrap();
+            state.amount_calculated = state
+                .amount_calculated
+                .checked_add(step.amount_in + step.fee_amount)
+                .unwrap();
+        }
+
+        if state.sqrt_price_x64 == step.sqrt_price_next_x64 {
+            if step.initialized {
+                let mut liquidity_net = next_initialized_tick.liquidity_net;
+                if zero_for_one {
+                    liquidity_net = liquidity_net.neg();
+                }
+                state.liquidity =
+                    liquidity_math::add_delta(state.liquidity, liquidity_net).unwrap();
+            }
+
+            state.tick = if zero_for_one {
+                step.tick_next - 1
+            } else {
+                step.tick_next
+            };
+        } else if state.sqrt_price_x64 != step.sqrt_price_start_x64 {
+            state.tick = tick_math::get_tick_at_sqrt_price(state.sqrt_price_x64).unwrap();
+        }
+
+        loop_count += 1;
+    }
+
+    Ok((
+        state.amount_calculated,
+        state.sqrt_price_x64,
+        state.liquidity,
+        state.tick,
+    ))
+}
