@@ -4,7 +4,6 @@ use anchor_lang::prelude::AccountMeta;
 use anyhow::{format_err, Result};
 use arrayref::array_ref;
 use clap::Parser;
-use configparser::ini::Ini;
 use solana_account_decoder::{
     parse_token::{TokenAccountType, UiAccountState},
     UiAccountData, UiAccountEncoding,
@@ -30,7 +29,6 @@ use std::rc::Rc;
 use std::str::FromStr;
 use std::{collections::VecDeque, convert::identity, mem::size_of};
 
-mod instructions;
 use bincode::serialize;
 use instructions::amm_instructions::*;
 use instructions::events_instructions_parse::*;
@@ -44,12 +42,6 @@ use spl_token_2022::{
     state::{Account, AccountState},
 };
 use spl_token_client::token::ExtensionInitializationParams;
-use {
-    raydium_clmm::libraries::{self, fixed_point_64, liquidity_math, tick_math},
-    raydium_clmm::states::{
-        self, PoolState, TickArrayBitmapExtension, TickArrayState, POOL_TICK_ARRAY_BITMAP_SEED,
-    },
-};
 
 use crate::instructions::utils;
 #[derive(Clone, Debug, PartialEq)]

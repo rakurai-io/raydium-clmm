@@ -14,7 +14,7 @@ use raydium_clmm::states::{
 };
 use std::rc::Rc;
 
-use super::super::{read_keypair_file, ClientConfig};
+use crate::config::{read_keypair_file, ClientConfig};
 
 pub fn create_amm_config_instr(
     config: &ClientConfig,
