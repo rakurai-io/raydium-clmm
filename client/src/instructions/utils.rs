@@ -527,7 +527,7 @@ fn swap_compute(
 }
 
 
-fn compute_swap(
+pub fn compute_swap(
     current_sqrt_price_x64: u128,
     current_liquidity: u128,
     zero_for_one: bool,
