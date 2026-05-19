@@ -1,6 +1,6 @@
 use anyhow::{format_err, Result};
 use configparser::ini::Ini;
-use raydium_amm_v3::states::POOL_TICK_ARRAY_BITMAP_SEED;
+use raydium_clmm::states::POOL_TICK_ARRAY_BITMAP_SEED;
 use solana_sdk::{
     pubkey::Pubkey,
     signature::Keypair,
@@ -65,7 +65,7 @@ pub fn load_cfg(client_config: &String) -> Result<ClientConfig> {
 
     let (amm_config_key, __bump) = Pubkey::find_program_address(
         &[
-            raydium_amm_v3::states::AMM_CONFIG_SEED.as_bytes(),
+                raydium_clmm::states::AMM_CONFIG_SEED.as_bytes(),
             &amm_config_index.to_be_bytes(),
         ],
         &raydium_v3_program,
@@ -80,7 +80,7 @@ pub fn load_cfg(client_config: &String) -> Result<ClientConfig> {
         Some(
             Pubkey::find_program_address(
                 &[
-                    raydium_amm_v3::states::POOL_SEED.as_bytes(),
+                    raydium_clmm::states::POOL_SEED.as_bytes(),
                     amm_config_key.to_bytes().as_ref(),
                     mint0.unwrap().to_bytes().as_ref(),
                     mint1.unwrap().to_bytes().as_ref(),
