@@ -536,9 +536,9 @@ pub fn compute_swap(
     amount_specified: u64,
     current_vaild_tick_array_start_index: i32,
     sqrt_price_limit_x64: u128,
-    pool_state: &raydium_amm_v3::states::PoolState,
-    tickarray_bitmap_extension: &raydium_amm_v3::states::TickArrayBitmapExtension,
-    tick_arrays: &mut VecDeque<raydium_amm_v3::states::TickArrayState>,
+    pool_state: &raydium_clmm::states::PoolState,
+    tickarray_bitmap_extension: &raydium_clmm::states::TickArrayBitmapExtension,
+    tick_arrays: &mut VecDeque<raydium_clmm::states::TickArrayState>,
 ) -> Result<(u64, u128, u128, i32), &'static str> {
     if amount_specified == 0 {
         return Err("amountSpecified must not be 0");
@@ -606,7 +606,7 @@ pub fn compute_swap(
         {
             Box::new(*tick_state)
         } else {
-            Box::new(raydium_amm_v3::states::TickState::default())
+            Box::new(raydium_clmm::states::TickState::default())
         };
 
         if !next_initialized_tick.is_initialized() {
@@ -651,7 +651,7 @@ pub fn compute_swap(
             step.sqrt_price_next_x64
         };
 
-        let swap_step = raydium_amm_v3::libraries::swap_math::compute_swap_step(
+        let swap_step = raydium_clmm::libraries::swap_math::compute_swap(
             state.sqrt_price_x64,
             target_price,
             state.liquidity,
@@ -659,7 +659,7 @@ pub fn compute_swap(
             trade_fee_rate,
             is_base_input,
             zero_for_one,
-            1,
+            pool_state.is_fee_on_input(zero_for_one),
         )
         .unwrap();
 
