@@ -41,12 +41,11 @@ pub fn create_and_init_mint_instr(
         .collect::<Vec<_>>();
     let space = ExtensionType::try_calculate_account_len::<Mint>(&extension_types)?;
 
+    let rent = RpcClient::new(config.http_url.clone()).get_minimum_balance_for_rent_exemption(space)?;
     let mut instructions = vec![system_instruction::create_account(
         &program.payer(),
         mint_key,
-        program
-            .rpc()
-            .get_minimum_balance_for_rent_exemption(space)?,
+        rent,
         space as u64,
         &program.id(),
     )];
@@ -74,14 +73,14 @@ pub fn create_account_rent_exmpt_instr(
     // Client.
     let client = Client::new(url, Rc::new(payer));
     let program = client.program(owner)?;
+    let rent =
+        RpcClient::new(config.http_url.clone()).get_minimum_balance_for_rent_exemption(data_size)?;
     let instructions = program
         .request()
         .instruction(system_instruction::create_account(
             &program.payer(),
             &new_account_key,
-            program
-                .rpc()
-                .get_minimum_balance_for_rent_exemption(data_size)?,
+            rent,
             data_size as u64,
             &program.id(),
         ))
@@ -147,14 +146,14 @@ pub fn create_and_init_auxiliary_token(
         (client.program(spl_token_2022::id())?, space)
     };
 
+    let rent =
+        RpcClient::new(config.http_url.clone()).get_minimum_balance_for_rent_exemption(space)?;
     let instructions = program
         .request()
         .instruction(system_instruction::create_account(
             &program.payer(),
             &mint,
-            program
-                .rpc()
-                .get_minimum_balance_for_rent_exemption(space)?,
+            rent,
             space as u64,
             &program.id(),
         ))
@@ -192,7 +191,6 @@ pub fn close_token_account(
             &owner.pubkey(),
             &[],
         )?)
-        .signer(owner)
         .instructions()?;
     Ok(instructions)
 }
@@ -219,7 +217,6 @@ pub fn spl_token_transfer_instr(
             &[],
             amount,
         )?)
-        .signer(from_authority)
         .instructions()?;
     Ok(instructions)
 }
@@ -251,7 +248,6 @@ pub fn spl_token_mint_to_instr(
             &[],
             amount,
         )?)
-        .signer(mint_authority)
         .instructions()?;
     Ok(instructions)
 }
