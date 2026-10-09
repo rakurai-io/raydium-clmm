@@ -601,7 +601,7 @@ pub fn compute_swap(
 
         let mut next_initialized_tick = if let Some(tick_state) = tick_arrays[tick_array_index]
             .next_initialized_tick(state.tick, pool_tick_spacing, zero_for_one)
-            .unwrap()
+            .map_err(|_| "failed to get next initialized tick")?
         {
             Box::new(*tick_state)
         } else {
@@ -615,7 +615,7 @@ pub fn compute_swap(
                     current_valid_tick_array_start_index,
                     zero_for_one,
                 )
-                .unwrap();
+                .map_err(|_| "failed to get next tick array start index")?;
 
             let next_tick_array_start_index =
                 next_tick_array_start_index.ok_or("tick array start tick index out of range limit")?;
@@ -628,7 +628,7 @@ pub fn compute_swap(
 
             let first_initialized_tick = *tick_arrays[tick_array_index]
                 .first_initialized_tick(zero_for_one)
-                .unwrap();
+                .map_err(|_| "failed to get first initialized tick")?;
             next_initialized_tick = Box::new(first_initialized_tick);
         }
 
@@ -640,7 +640,8 @@ pub fn compute_swap(
             step.tick_next = MAX_TICK;
         }
 
-        step.sqrt_price_next_x64 = tick_math::get_sqrt_price_at_tick(step.tick_next).unwrap();
+        step.sqrt_price_next_x64 = tick_math::get_sqrt_price_at_tick(step.tick_next)
+            .map_err(|_| "failed to get sqrt price at tick")?;
 
         let target_price = if (zero_for_one && step.sqrt_price_next_x64 < sqrt_price_limit_x64)
             || (!zero_for_one && step.sqrt_price_next_x64 > sqrt_price_limit_x64)
@@ -660,7 +661,7 @@ pub fn compute_swap(
             zero_for_one,
             1,
         )
-        .unwrap();
+        .map_err(|_| "swap step calculate overflow")?;
 
         state.sqrt_price_x64 = swap_step.sqrt_price_next_x64;
         step.amount_in = swap_step.amount_in;
@@ -671,20 +672,20 @@ pub fn compute_swap(
             state.amount_specified_remaining = state
                 .amount_specified_remaining
                 .checked_sub(step.amount_in + step.fee_amount)
-                .unwrap();
+                .ok_or("amount_specified_remaining underflow")?;
             state.amount_calculated = state
                 .amount_calculated
                 .checked_add(step.amount_out)
-                .unwrap();
+                .ok_or("amount_calculated overflow")?;
         } else {
             state.amount_specified_remaining = state
                 .amount_specified_remaining
                 .checked_sub(step.amount_out)
-                .unwrap();
+                .ok_or("amount_specified_remaining underflow")?;
             state.amount_calculated = state
                 .amount_calculated
                 .checked_add(step.amount_in + step.fee_amount)
-                .unwrap();
+                .ok_or("amount_calculated overflow")?;
         }
 
         if state.sqrt_price_x64 == step.sqrt_price_next_x64 {
@@ -693,8 +694,8 @@ pub fn compute_swap(
                 if zero_for_one {
                     liquidity_net = liquidity_net.neg();
                 }
-                state.liquidity =
-                    liquidity_math::add_delta(state.liquidity, liquidity_net).unwrap();
+                state.liquidity = liquidity_math::add_delta(state.liquidity, liquidity_net)
+                    .map_err(|_| "liquidity delta overflow")?;
             }
 
             state.tick = if zero_for_one {
@@ -703,7 +704,8 @@ pub fn compute_swap(
                 step.tick_next
             };
         } else if state.sqrt_price_x64 != step.sqrt_price_start_x64 {
-            state.tick = tick_math::get_tick_at_sqrt_price(state.sqrt_price_x64).unwrap();
+            state.tick = tick_math::get_tick_at_sqrt_price(state.sqrt_price_x64)
+                .map_err(|_| "failed to get tick at sqrt price")?;
         }
 
         loop_count += 1;
